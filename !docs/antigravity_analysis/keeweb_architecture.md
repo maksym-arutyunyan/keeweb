@@ -48,10 +48,11 @@ To share code between Web and Desktop, Keeweb uses a `Launcher` module:
 *   **In Web**: The `Launcher` is either null or a stub, disabling features that require native access.
 
 ## 5. Summary for Replication
-To replicate this:
-1.  **Build a Static Web App**: Use any framework (React/Vue/etc.).
-2.  **Abstract Storage**: Create an interface for reading/writing data.
+To replicate this architecture for your requirements:
+1.  **Build a Static Web App**: Use a modern framework (Vue/React).
+2.  **Abstract Storage**: Create a strict interface for reading/writing data. This is crucial for swapping between file systems (Node.js `fs` vs Tauri `fs` vs Browser `File System Access API`).
 3.  **Implement Adapters**:
     *   **Cloud**: Use their JS SDKs.
-    *   **Local (Desktop)**: Use Electron's `fs`.
-    *   **Local (Web - Modern)**: Use the **File System Access API** (`window.showOpenFilePicker`) to allow the user to grant read/write access to specific local files, approximating the Desktop experience in the browser.
+    *   **Local (Web - Modern)**: Use the **File System Access API**.
+    *   **Local (Desktop)**: Implement this LAST. You can write a specific adapter later for either **Electron** (Node.js) or **Tauri** (Rust IPC) without changing your core app logic.
+
