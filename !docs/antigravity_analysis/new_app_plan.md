@@ -1,93 +1,100 @@
-# Plan: Creating Your Cross-Platform App
+# Plan: Creating Your Cross-Platform App (Svelte Edition)
 
-Based on your requirements (Browser + Desktop, Multiplatform, Lightweight, Frontend-only, File-based, Desktop-Agnostic, Custom Formats), here is the updated plan.
+Based on your requirements (Browser + Desktop, Multiplatform, Lightweight, Frontend-only, File-based, Desktop-Agnostic, Custom Formats) and the decision to use **Svelte**, here is the concrete implementation plan.
 
 ## 1. Core Philosophy: "Web First, Desktop Later"
 
-Since the desktop version is just a wrapper, we will focus 100% on building a powerful, "offline-capable" web application first. The desktop wrappers (Electron/Tauri) will be added as a final deployment step.
+We will build a high-performance, offline-capable Svelte web application. The desktop wrappers (Electron/Tauri) will be added as a thin distribution layer later.
 
 ## 2. Technology Stack
 
-### Recommended Stack
-*   **Frontend Framework**: [Vue 3](https://vuejs.org/) or [React](https://react.dev/).
-    *   *Why?* Component-based, excellent ecosystem.
-*   **Build Tool**: [Vite](https://vitejs.dev/).
-    *   *Why?* Fast, produces static assets suitable for both Web and Desktop wrappers.
+### Selected Stack
+*   **Framework**: **Svelte 5** (or latest stable).
+    *   *Why?* Compiles to tiny vanilla JS, exceptional performance, and simple state management (Stores/Runes) perfect for handling file data.
+*   **Build Tool**: **Vite**.
+    *   *Why?* Instant dev server, optimized builds for both web and desktop targets.
 *   **Language**: **TypeScript**.
-    *   *Why?* You mentioned using custom file formats (Protobuf, CSV). TypeScript is essential for defining strict interfaces for these data structures.
+    *   *Why?* Essential for defining strict schemas for your custom file formats (Protobuf/CSV).
+*   **CSS**: **Vanilla CSS** or **Tailwind** (User preference, Svelte handles scoped CSS natively).
 *   **Data Serialization**:
-    *   **Protobuf**: `protobufjs` or `ts-proto` for parsing/serializing binary data.
-    *   **CSV**: `papaparse` for robust CSV handling.
+    *   **Protobuf**: `protobufjs` (for binary speed/size) or `ts-proto`.
+    *   **CSV**: `papaparse` (standard for JS CSV handling).
 
 ## 3. Architecture: The "Storage Adapter" Pattern
 
-This is the most critical part of your architecture. To ensure your app works with Electron, Tauri, OR the Browser without code changes, you must abstract the "File System" completely.
+To keep the app "Desktop Agnostic", we abstract the file system. Svelte Stores will bridge the gap between this adapter and your UI.
 
 ### The Interface (`IStorage`)
-Your core app interaction should look like this:
-
 ```typescript
-type FileFilters = { name: string; extensions: string[] }[];
+// src/lib/storage/types.ts
 
-interface IStorageAdapter {
-    id: string; // 'browser-fs', 'tauri-fs', 'electron-fs'
+export interface IStorageAdapter {
+    id: 'browser' | 'electron' | 'tauri';
     
     // Core capabilities
-    readFile(path: string): Promise<Uint8Array>; // Always deal with binary buffers for flexibility
+    readFile(path: string): Promise<Uint8Array>; 
     writeFile(path: string, content: Uint8Array): Promise<void>;
     
-    // Dialogs (These will trigger native dialogs in Desktop, HTML dialogs in Browser)
-    showOpenDialog(filters?: FileFilters): Promise<string | null>; // Returns path/handle
-    showSaveDialog(filters?: FileFilters): Promise<string | null>;
+    // Dialogs return a "Path" (Desktop) or a "Handle ID" (Browser)
+    showOpenDialog(options?: { extensions: string[] }): Promise<string | null>;
+    showSaveDialog(options?: { extensions: string[] }): Promise<string | null>;
 }
 ```
 
-### Implementations
+### Svelte Integration
+You will likely have a global store (or Svelte 5 Rune) that holds the current adapter.
 
-#### 1. Browser Adapter (The "Standard")
-*   **API**: **File System Access API** (Modern Browsers).
-*   **Workflow**:
-    *   `showOpenDialog` -> calls `window.showOpenFilePicker()`.
-    *   Returns a `FileSystemFileHandle` (masked as a string ID in your app).
-    *   `writeFile` -> calls `handle.createWritable()`.
-*   **Fallback**: For older browsers, use `<input type="file">` and `download` attributes (Mock implementation).
+```typescript
+// src/lib/stores/appState.ts
+import { writable } from 'svelte/store';
+import { BrowserAdapter } from '$lib/storage/browser';
 
-#### 2. Desktop Adapters (Future Proofing)
-When you decide to add a desktop wrapper, you simply write a new adapter.
-*   **Electron**: Uses `window.electronAPI.readFile` (bridged to Node `fs`).
-*   **Tauri**: Uses `window.__TAURI__.fs.readBinaryFile` (bridged to Rust).
+// Default to browser, swap at runtime if window.electron exists
+export const storage = writable<IStorageAdapter>(new BrowserAdapter());
+```
 
-**Key Takeaway**: Your app logic *never* imports `fs` or `tauri` directly. It only calls `storageAdapter.readFile()`.
-
-## 4. Simplified Implementation Plan
+## 4. Implementation Steps
 
 ### Phase 1: The Core Web App
-1.  **Initialize Project**: `npm create vite@latest my-app -- --template vue-ts` (or react-ts).
-2.  **Define Data Models**:
-    *   Create your Typescript interfaces for your data.
-    *   Implement parsers for your formats (CSV/Protobuf).
-3.  **Implement `BrowserStorageAdapter`**:
-    *   Focus on the `File System Access API` to give that "native app" feel in the browser.
-4.  **Build the Editor UI**:
-    *   Load file -> Parse -> Edit in UI -> Serialize -> Save.
-    *   *No backend required.*
+1.  **Initialize Project**:
+    ```bash
+    npm create vite@latest my-app -- --template svelte-ts
+    cd my-app
+    npm install
+    ```
+2.  **Implement `BrowserStorageAdapter`**:
+    *   Use the **File System Access API** (`window.showOpenFilePicker`).
+    *   Store file handles in IndexedDB (idb-keyval) so you can re-open files on page reload without asking permission again (if the browser permits).
+3.  **Build the Editor UI**:
+    *   Create Svelte components for your data editors.
+    *   Use `bind:value` for two-way binding with your data models.
+    *   **Protobuf Workflow**: Load Uint8Array -> Parse to Object -> generic Svelte Form -> Serialize to Uint8Array -> Save.
 
-### Phase 2: "Desktop Ready" Preparation
-1.  **Context isolation**: Ensure no Node.js APIs are used in the main Vue/React code.
-2.  **Responsive Design**: Ensure the UI looks good at arbitrary window sizes (desktop windows are resizable).
+### Phase 2: "Desktop Ready" Prep
+1.  **Context Isolation**: Ensure you don't use any Node.js APIs in your `.svelte` files. All logic must be pure JS/TS.
+2.  **Hotkeys**: Implement a global keyboard handler (Ctrl+S, Ctrl+O) that calls the `storage` store methods.
 
-### Phase 3: The Wrapper (Decision Time)
-*   **Option A: Electron**:
-    *   If you need deep OS integration or specific Node.js modules.
-    *   *Action*: Add `main.js`, create `ElectronStorageAdapter`.
-*   **Option B: Tauri**:
-    *   If you want a tiny binary (<10MB) and high performance.
-    *   *Action*: `cargo tauri init`, create `TauriStorageAdapter`.
+### Phase 3: The Wrapper (Desktop)
+Since you know Rust and want agility, **Tauri** is likely the best fit for Svelte.
 
-## 5. Data Format Strategy
-Since you aren't using Keepass, you have total freedom.
-*   **CSV**: Good for simple, human-readable lists.
-*   **Protobuf**: Excellent for complex, structured data. strict schema, small file size.
-*   **Hybrid**: You can zip multiple files together (like `.docx` or `.jar` are just zips) if you need to bundle assets with your data.
+*   **Initialize Tauri**:
+    ```bash
+    npm install @tauri-apps/cli
+    npx tauri init
+    ```
+*   **Implement `TauriStorageAdapter`**:
+    *   Use `@tauri-apps/api/fs` to read/write binary files.
+    *   Use `@tauri-apps/api/dialog` for native open/save dialogs.
+*   **Switching Logic**:
+    ```typescript
+    // src/main.ts
+    if (window.__TAURI__) {
+       storage.set(new TauriAdapter());
+    }
+    ```
 
-This plan minimizes wasted effort. You build the "Product" (the Web App) first, and the "Distribution" (Desktop Wrapper) becomes a trivial configuration detail later.
+## 5. Why Svelte wins here
+*   **Binary Handling**: Svelte doesn't have the overhead of React's synthetic events or heavy VDOM diffing, which is great when hex-editing or handling large CSV grids.
+*   **Stores**: Svelte's strict separation of "Stores" (logic/data) and "Components" (UI) encourages the exact architecture you need: a headless "App Core" that talks to Storage Adapters, with a thin UI layer on top.
+
+This plan gives you the lightest, fastest possible app that runs everywhere.
